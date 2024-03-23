@@ -1,0 +1,9 @@
+{
+  "flask_port": "5003",
+  "db_cfg": {
+    "host": "localhost",
+    "user": "root",
+    "password": "root123",
+    "database": "ielts_speaking"
+  }
+}
