@@ -59,12 +59,15 @@ onUnmounted(() => {
 })
 
 function recite() {
+    loading.value = true
     GetInfo({})
         .then((response: any) => {
+            loading.value = false
             ques_info.value = response.data.ques_info
             // console.log("@", ques_info)
         })
         .catch((error: any) => {
+            loading.value = false
             console.log("@, error")
         })
 }
@@ -78,13 +81,14 @@ function submit() {
             console.log("@", audioText.value)
         })
         .catch((error: any) => {
+            loading.value = false
             console.log("@22, error")
         })
 }
 </script>
 
 <template>
-    <el-button type="primary" @click="recite">Recite</el-button>
+    <el-button type="primary" @click="recite" v-loading="loading">Recite</el-button>
     <h3 v-if="ques_info">Today we have {{ ques_info.length }} questions!!</h3>
     <hr />
     <div v-for="ques in ques_info" :key="ques[0]" class="container_cont">
