@@ -9,7 +9,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from utils import (read_json, get_ques,
-                   process_audios)
+                   process_audios, gen_gpt_reply)
 
 app = Flask(__name__)
 CORS(app)
@@ -28,7 +28,8 @@ def get_today_info():
 def post_audios():
     results = {'resCode': 0}
     results['audio_text'] = process_audios(request.files)
-    print(results['audio_text'])
+    results['gpt_reply'] = gen_gpt_reply(results['audio_text'])
+    # print(results['audio_text'])
     return jsonify(results)
 
 

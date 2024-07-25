@@ -10,14 +10,65 @@ import json
 import pymysql
 import subprocess
 import whisper
+import os, time
 
 from datetime import datetime
 from pathlib import Path
+from poe_api_wrapper import PoeApi
 
 ptr_path = 'data_ptr.json'
 cfg_path = '../config.json'
 audios_path = './audios'
 day_gaps = [1, 3, 7, 7, 14, 14, 14, 30]
+
+# chat api
+tokens = {
+    'p-b': '7kM5SS9VHk4M-6J59hqtSg%3D%3D',
+    'p-lat': 'qPIZSb1VF0PUuS70nhAzKvGb9P2GsOfiyXKZQvKSbg%3D%3D'
+}
+
+os.environ["http_proxy"] = "http://127.0.0.1:7890"
+os.environ["https_proxy"] = "http://127.0.0.1:7890"
+client = PoeApi(tokens=tokens)
+print(client.get_chat_history()['data'])
+chatId = 305781254
+inst = ('基于下面这段英文做出修改，请保持修改的精准性和语法正确，并且符合日常交流的语言习惯，并将修改后的句子翻译成中文。\n'
+        '下面是我的英文原文：{}')
+
+
+def gen_reply(message):
+    # while True:
+    #     try:
+    #         resp = ""
+    #         for chunk in client.send_message('gpt4_o', message, chatId=chatId):
+    #             resp += chunk["response"]
+    #         break  # 如果成功执行了函数，退出循环
+    #     except Exception as e:
+    #         print(f"尝试失败：{str(e)}，正在重试...")
+    #         time.sleep(25)  # 可以适当休眠一段时间再重试
+    resp = ""
+    for chunk in client.send_message('gpt4_o', message, chatId=chatId):
+        resp += chunk["response"]
+    time.sleep(2)
+    return resp
+
+
+def gen_gpt_reply(audio_text):
+    gpt_reply = {}
+    # key_list = list(audio_text.keys())
+    # print(key_list)
+    # for i, k_en in enumerate(key_list[::2]):
+    #     t_cn = audio_text[key_list[2*i + 1]]
+    #     t_en = audio_text[k_en]
+    #     print(f"ccccc, {audio_text[k_en]}")
+    #     message = inst.format(t_en)
+    #     gpt_reply[k_en.split('_')[0]] = gen_reply(message)
+
+    for k_en, v_en in audio_text.items():
+        message = inst.format(v_en)
+        gpt_reply[k_en.split('_')[0]] = gen_reply(message)
+    # print(gpt_reply)
+    return gpt_reply
 
 
 def read_json(data_path):
@@ -51,26 +102,46 @@ def pop_n_ques(n: int):
     return infos
 
 
+def init_queue():
+    query = "SELECT COUNT(*) FROM ques_queue"
+    result = execute_cmd(query)
+    if result[0][0] == 0:
+        add_cmd = "INSERT IGNORE INTO ques_queue (id, ques_strs) VALUES ({}, NULL);"
+        for i in range(sum(day_gaps)):
+            execute_cmd(add_cmd.format(i+1))
+
+
 def get_ques():
     src_ques = pop_n_ques(2)
-    src_ques_list = [list(str(sq[0])) + list(sq[1:]) for sq in src_ques]
+    src_ques_list = [[str(sq[0])] + list(sq[1:]) for sq in src_ques]
     src_ques_str_list = [';'.join(q) for q in src_ques_list]
     src_ques_str = '|'.join(src_ques_str_list)
 
     get_ques_cmd = f"SELECT ques_strs FROM ques_queue WHERE id = {(ptrs['queue'] + 1)};"
+    init_queue()
     org_ques = execute_cmd(get_ques_cmd)[0][0]
     ptrs['queue'] = (ptrs['queue'] + 1) % sum(day_gaps)
-    if len(org_ques) != 0:
-        comb_strs = [org_ques, src_ques_str]
-        comb_strs = '|'.join(comb_strs)
+    write_json(ptr_path, ptrs)
+    if org_ques is not None and len(org_ques) != 0:
         src_ques_list += parse_ques_strs(org_ques)
-    else:
-        comb_strs = src_ques_str
 
-    update_table_cmd = "UPDATE ques_queue SET ques_strs = %s WHERE id = %s;"
-    execute_cmd(update_table_cmd, (comb_strs, (ptrs['queue'] + 1)))
-
+    strs_append(src_ques_str)
     return src_ques_list
+
+
+def strs_append(src_ques_str):
+    for i, _ in enumerate(day_gaps):
+        queue_idx = (ptrs['queue'] + sum(day_gaps[:(i + 1)])) % sum(day_gaps)
+        get_ques_cmd = f"SELECT ques_strs FROM ques_queue WHERE id = {(queue_idx + 1)};"
+        org_i_ques = execute_cmd(get_ques_cmd)[0][0]
+        if org_i_ques is not None and len(org_i_ques) != 0:
+            comb_strs = [org_i_ques, src_ques_str]
+            comb_strs = '|'.join(comb_strs)
+        else:
+            comb_strs = src_ques_str
+
+        update_table_cmd = "UPDATE ques_queue SET ques_strs = %s WHERE id = %s;"
+        execute_cmd(update_table_cmd, (comb_strs, (queue_idx+1)))
 
 
 def parse_ques_strs(ques_strs: str):
@@ -98,13 +169,11 @@ def convert_weba_to_mp3(weba_data, output_path):
     ]
 
     # 启动子进程
-    process = subprocess.Popen(command, stdin=subprocess.PIPE)
-    process.communicate(input=weba_data)
-    process.stdin.close()
-    return_code = process.wait()
+    process = subprocess.Popen(command, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = process.communicate(input=weba_data)
 
-    if return_code != 0:
-        raise Exception(f"ffmpeg process returned {return_code}")
+    if process.returncode != 0:
+        return f"An error occurred during conversion: {stderr.decode()}"
 
 
 def process_audios(request_files):
@@ -117,7 +186,7 @@ def process_audios(request_files):
         convert_weba_to_mp3(value.read(), str(change_path))
         temp_text = model.transcribe(str(change_path))["text"]
         audio_to_text[key] = temp_text
-        store_text(key, temp_text, today_date.strftime("%Y-%m-%d"))
+        # store_text(key, temp_text, today_date.strftime("%Y-%m-%d"))
 
     return audio_to_text
 
@@ -144,5 +213,6 @@ if __name__ == '__main__':
     # ceate_new = "CREATE TABLE ques_queue (id INT AUTO_INCREMENT PRIMARY KEY, ques_strs VARCHAR(1023));"
     # print(execute_cmd(ceate_new))
     # ts_list = get_ques()
-    ts_list = store_text(1, 'nihao', '2024-03-23')
+    # ts_list = store_text(1, 'nihao', '2024-03-23')
     ...
+    init_queue()

@@ -2,6 +2,7 @@
 import { GetInfo, PushAudios } from "@/apis/read.js"
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Mic } from '@element-plus/icons-vue'
+import { marked } from 'marked'
 
 let ques_info = ref()
 const recording = ref(false)
@@ -11,7 +12,7 @@ const audioURL = ref({})
 const blob = ref()
 const audioText = ref()
 const loading = ref(false)
-let currentIdx = -1
+let currentIdx = ""
 let stream
 const audioSet = new FormData()
 
@@ -27,8 +28,9 @@ onMounted(async () => {
         mediaRecorder.value.onstop = () => {
             blob.value = new Blob(chunks.value, { type: 'audio/webm; codecs=opus' })
             chunks.value = []
-            audioURL.value[currentIdx.toString()] = URL.createObjectURL(blob.value)
-            audioSet.set(currentIdx.toString(), blob.value, `audio_${currentIdx}.webm`)
+            audioURL.value[currentIdx] = URL.createObjectURL(blob.value)
+            console.log('$$$$#', audioURL.value)
+            audioSet.set(currentIdx, blob.value, `audio_${currentIdx}.webm`)
 
         }
     } catch (error) {
@@ -41,6 +43,7 @@ function toggleRecording(idx) {
         mediaRecorder.value.stop()
         recording.value = false
     } else {
+        console.log('###',idx)
         mediaRecorder.value.start()
         recording.value = true
         currentIdx = idx
@@ -76,13 +79,13 @@ function submit() {
     loading.value = true
     PushAudios(audioSet)
         .then((response: any) => {
-            audioText.value = response.data.audio_text
+            audioText.value = response.data.gpt_reply
             loading.value = false
-            console.log("@", audioText.value)
+            // console.log("@", audioText.value)
         })
         .catch((error: any) => {
             loading.value = false
-            console.log("@22, error")
+            // console.log("@22, error")
         })
 }
 </script>
@@ -95,12 +98,16 @@ function submit() {
         <div class="each_cont">
             <h4>{{ ques[2] }}</h4>
             <h5>{{ ques[3] }}</h5>
-            <el-button type="danger" :icon="Mic" circle @click="toggleRecording(ques[0])" v-if="!recording" />
-            <el-button type="" :icon="Mic" circle @click="toggleRecording(ques[0])" v-else />
-            <audio class="audio-player" controls :src="audioURL[ques[0].toString()]" preload="auto"></audio>
+            <el-button type="danger" :icon="Mic" circle @click="toggleRecording(ques[0].toString()+'_EN')" v-if="!recording" />
+            <el-button type="" :icon="Mic" circle @click="toggleRecording(ques[0].toString()+'_EN')" v-else />
+            <audio class="audio-player" controls :src="audioURL[ques[0].toString()+'_EN']" preload="auto"></audio>
+
+            <!-- <el-button type="danger" :icon="Mic" circle @click="toggleRecording(ques[0].toString()+'_CN')" v-if="!recording" />
+            <el-button type="" :icon="Mic" circle @click="toggleRecording(ques[0].toString()+'_CN')" v-else />
+            <audio class="audio-player" controls :src="audioURL[ques[0].toString()+'_CN']" preload="auto"></audio> -->
         </div>
         <div class="each_cont" v-if="audioText && ques[0] in audioText">
-            {{ audioText[ques[0]] }}
+            <div v-html="marked(audioText[ques[0]])"></div>
         </div>
         <hr style="border-top: 1px dashed #000; border-bottom: none;" />
     </div>

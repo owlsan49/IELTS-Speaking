@@ -15,11 +15,3 @@ export function PushAudios(postData){
         data: postData,
     })
 }
-
-// export function PopWords(updateParams){
-//     return service.request({
-//         method: "get",
-//         url: "/pop_words",
-//         params: updateParams
-//     })
-// }
